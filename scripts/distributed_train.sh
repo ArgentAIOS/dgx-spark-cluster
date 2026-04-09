@@ -31,23 +31,12 @@ MASTER_PORT=29500
 NNODES=2
 NPROC_PER_NODE=1
 
-# Network configuration for DGX Spark
-export NCCL_SOCKET_IFNAME=enp1s0f0np0
-export GLOO_SOCKET_IFNAME=enp1s0f0np0
-export NCCL_IB_DISABLE=0
-export NCCL_IB_HCA=mlx5_0
-export NCCL_NET=IB
-export NCCL_IB_GID_INDEX=3
-export NCCL_NET_GDR_LEVEL=0  # GPU Direct not supported on Grace Blackwell
-export NCCL_DMABUF_ENABLE=0
-export NCCL_IB_TIMEOUT=22
-export NCCL_IB_RETRY_CNT=7
-export NCCL_IB_QPS_PER_CONNECTION=4
-export NCCL_IB_TC=106
-export NCCL_ALGO=Ring
-export NCCL_PROTO=Simple
-export NCCL_DEBUG=WARN
-export NCCL_TIMEOUT=600
+# NCCL configuration — source from nccl-env.sh if not already set
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -z "$NCCL_SOCKET_IFNAME" ]; then
+    NCCL_MODE="${NCCL_MODE:-safe}"
+    source "${SCRIPT_DIR}/../configs/nccl-env.sh" "$NCCL_MODE"
+fi
 
 echo "=========================================="
 echo "DGX Spark Distributed Training Launcher"

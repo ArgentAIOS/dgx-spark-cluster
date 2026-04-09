@@ -1,0 +1,15 @@
+[Unit]
+Description=Connect to Rosa NVMe-TCP targets
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/nvme connect -t tcp -n raid5-data -a 192.168.0.100 -s 4420
+ExecStart=/usr/sbin/nvme connect -t tcp -n llm-models -a 192.168.0.100 -s 4420
+ExecStop=/usr/sbin/nvme disconnect -n raid5-data
+ExecStop=/usr/sbin/nvme disconnect -n llm-models
+
+[Install]
+WantedBy=multi-user.target

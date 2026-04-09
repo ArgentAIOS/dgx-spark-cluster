@@ -27,6 +27,9 @@ models/
 .DS_Store
 Thumbs.db
 
+# Raw images (JPGs are the web-ready versions)
+*.HEIC
+
 # Secrets / keys
 *.pem
 *.key

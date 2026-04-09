@@ -1,0 +1,6 @@
+# ROSA NVMe-TCP volumes — add these to /etc/fstab on each Spark
+# The nvme-rosa-connect.service must be running before these mount.
+# _netdev: wait for network; noatime: reduce write amplification
+
+/dev/nvme1n1  /mnt/rosa-storage  ext4  defaults,noatime,_netdev  0  2
+/dev/nvme3n1  /mnt/rosa-models   ext4  defaults,noatime,_netdev  0  2
