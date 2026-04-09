@@ -1,0 +1,30 @@
+# /etc/netplan/99-dgx-cluster.yaml  — spark-dgx-1 (Node 0 / Master)
+# Copy to: sudo cp netplan-node0.yaml /etc/netplan/99-dgx-cluster.yaml
+# Apply:   sudo chmod 600 /etc/netplan/99-dgx-cluster.yaml && sudo netplan apply
+
+network:
+  version: 2
+  ethernets:
+
+    # Primary 200Gb Direct Fabric link to spark-dgx-2
+    enp1s0f0np0:
+      addresses:
+        - 10.0.0.1/24
+      mtu: 9000
+
+    # Secondary 200Gb LAN port + default route
+    enp1s0f1np1:
+      addresses:
+        - 192.168.0.188/24
+      mtu: 9000
+      routes:
+        - to: default
+          via: 192.168.0.1
+      nameservers:
+        addresses: [8.8.8.8, 8.8.4.4]
+
+    # 10Gb Management port
+    enP7s7:
+      addresses:
+        - 192.168.0.110/24
+      mtu: 9000

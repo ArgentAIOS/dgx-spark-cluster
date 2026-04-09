@@ -1,0 +1,50 @@
+# Benchmark configurations for different training scenarios
+
+scenarios:
+  single_local:
+    name: "Single Node - Local Storage"
+    description: "One DGX Spark reading from local NVMe storage"
+    nodes: 1
+    data_location: "local"
+    train_data: "/home/sem/training-benchmarks/train_benchmark.jsonl"
+    val_data: "/home/sem/training-benchmarks/val_benchmark.jsonl"
+    
+  single_rosa:
+    name: "Single Node - ROSA 50Gb"
+    description: "One DGX Spark reading from ROSA over bonded 2x25Gb (50Gb total)"
+    nodes: 1
+    data_location: "rosa"
+    train_data: "/mnt/rosa-storage/training-benchmarks/train_benchmark.jsonl"
+    val_data: "/mnt/rosa-storage/training-benchmarks/val_benchmark.jsonl"
+    
+  distributed_rosa:
+    name: "Distributed 2-Node - ROSA"
+    description: "Two DGX Sparks with data on ROSA server (50Gb bonded)"
+    nodes: 2
+    data_location: "rosa"
+    train_data: "/mnt/rosa-storage/training-benchmarks/train_benchmark.jsonl"
+    val_data: "/mnt/rosa-storage/training-benchmarks/val_benchmark.jsonl"
+    master_addr: "spark-dgx-1"
+    node0: "spark-dgx-1"
+    node1: "spark-dgx-2"
+
+# Common training parameters
+training:
+  model_name: "meta-llama/Llama-3.2-3B-Instruct"
+  epochs: 1
+  batch_size: 2
+  gradient_accumulation: 4
+  learning_rate: 2e-4
+  lora_rank: 32
+  lora_alpha: 64
+  max_seq_length: 2048
+  max_steps: 50  # Fixed number of steps for benchmarking
+  save_steps: 999999  # Don't save during benchmark
+
+# SSH configuration
+ssh:
+  user: "sem"
+  key_path: "~/.ssh/id_rsa"
+  
+# Results
+results_dir: "/home/sem/training-benchmarks/results"
