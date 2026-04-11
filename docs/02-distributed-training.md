@@ -33,17 +33,17 @@ What makes this setup unique—and challenging—is that the Grace Blackwell arc
 ### DGX Spark Specifications
 
 Each DGX Spark node features:
-- **CPU:** NVIDIA Grace ARM processors
-- **GPU:** 32x NVIDIA Blackwell GPUs in NVL32 configuration
-- **Memory:** Shared unified memory architecture
-- **Network:** 200 Gbps InfiniBand (ConnectX-7 / mlx5_0)
-- **OS:** Ubuntu 22.04 LTS
+- **CPU:** NVIDIA Grace ARM processors (10x Cortex-X925 + 10x Cortex-A725)
+- **GPU:** GB10 Grace Blackwell Superchip
+- **Memory:** 128 GB unified LPDDR5x (273 GB/s bandwidth)
+- **Network:** 200 Gbps RoCEv2 (ConnectX-7 / mlx5_0)
+- **OS:** DGX Spark OS 7.5.0 (Ubuntu 22.04 aarch64)
 
 ### Our Cluster
 
-- **Node 1 (spark-dgx-1):** IP 10.0.0.1 (Master)
-- **Node 2 (spark-dgx-2):** IP 10.0.0.2 (Worker)
-- **Connection:** Direct 200 Gbps InfiniBand link
+- **Node 1 (spark-dgx-1):** 10.0.0.1 (Master) / 192.168.0.188 (LAN) / 100.122.26.9 (Tailscale)
+- **Node 2 (spark-dgx-2):** 10.0.0.2 (Worker) / 192.168.0.218 (LAN) / 100.81.184.19 (Tailscale)
+- **Connection:** Direct 200 Gbps QSFP112 DAC, point-to-point (no switch)
 
 ## Network Architecture
 
@@ -76,6 +76,89 @@ ibdev2netdev
 ping -c 3 10.0.0.2  # From node 1
 ping -c 3 10.0.0.1  # From node 2
 ```
+
+## Do You Need Docker?
+
+**Short answer: No.** Docker is not required for distributed training on DGX Spark.
+
+You can run everything directly on the host OS if both Sparks have the same OS version, CUDA, and PyTorch installed — which they do out of the box. The native approach is simpler, faster to set up, and eliminates container networking complexity.
+
+Consider Docker only if you need environment isolation for multiple projects with conflicting dependencies, or you're deploying with NGC containers. **Start without Docker** and only add it if you hit a specific environment management problem.
+
+---
+
+## Official NVIDIA Resources
+
+Before diving into our configuration, be aware of NVIDIA's own guides:
+
+| Resource | URL |
+|---|---|
+| **Spark Playbooks** (30-min guides) | https://build.nvidia.com/spark |
+| **GitHub: dgx-spark-playbooks** | https://github.com/NVIDIA/dgx-spark-playbooks |
+| **Clustering User Guide** | https://docs.nvidia.com/dgx/dgx-spark/spark-clustering.html |
+| **Developer Forum** | https://forums.developer.nvidia.com/c/accelerated-computing/dgx-spark-gb10 |
+
+Our guide goes beyond the official docs by documenting the specific NCCL tuning required when GPU Direct RDMA is not available — a situation the official docs don't address in depth.
+
+---
+
+## Software Installation
+
+### Prerequisites (Both Nodes)
+
+Verify your stack before starting:
+
+```bash
+# CUDA
+nvcc --version
+
+# PyTorch with CUDA
+python3 -c "import torch; print(f'PyTorch: {torch.__version__}, CUDA: {torch.cuda.is_available()}')"
+
+# GPU visibility
+nvidia-smi
+
+# torchrun (modern distributed launcher)
+which torchrun
+```
+
+### Install NCCL (Both Nodes)
+
+```bash
+# Add CUDA repo for ARM64
+wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/arm64/cuda-keyring_1.1-1_all.deb
+sudo dpkg -i cuda-keyring_1.1-1_all.deb
+sudo apt update
+
+# Install NCCL
+sudo apt install -y libnccl2 libnccl-dev
+
+# Verify
+dpkg -l | grep nccl
+```
+
+### Build NCCL Test Suite (Recommended)
+
+```bash
+# On both nodes
+git clone https://github.com/NVIDIA/nccl-tests
+cd nccl-tests
+make MPI=1
+
+# Creates test binaries in ./build/
+ls build/all_reduce_perf
+```
+
+### Install OpenMPI (Optional)
+
+Only needed if you want MPI-based launching. We recommend torchrun instead (see [Launch Methods](#torchrun-vs-mpi)).
+
+```bash
+sudo apt install -y openmpi-bin libopenmpi-dev
+mpirun --version
+```
+
+---
 
 ## The Challenge
 
@@ -401,6 +484,196 @@ NCCL version 2.21.5+cuda12.4
   --learning-rate 2e-5 \
   --warmup-steps 100
 ```
+
+## Torchrun vs. MPI
+
+There are two ways to launch distributed training. **Use torchrun** — it's simpler and handles everything automatically.
+
+### torchrun (Recommended)
+
+```bash
+# On spark-dgx-1
+torchrun --nnodes=2 --nproc_per_node=1 --node_rank=0 \
+    --master_addr=10.0.0.1 --master_port=29500 train.py
+
+# On spark-dgx-2 (within 60 seconds)
+torchrun --nnodes=2 --nproc_per_node=1 --node_rank=1 \
+    --master_addr=10.0.0.1 --master_port=29500 train.py
+```
+
+torchrun automatically sets `RANK`, `LOCAL_RANK`, `WORLD_SIZE`, `MASTER_ADDR`, and `MASTER_PORT` as environment variables. Your script just calls `dist.init_process_group('nccl')` and it works.
+
+### MPI (Alternative)
+
+```bash
+mpirun -np 2 \
+    -H 10.0.0.1:1,10.0.0.2:1 \
+    -bind-to none -map-by slot \
+    -x NCCL_SOCKET_IFNAME=enp1s0f0np0 \
+    -x LD_LIBRARY_PATH \
+    python3 train.py
+```
+
+Requires passwordless SSH and your script must manually initialize the process group.
+
+> **WARNING:** Never wrap torchrun inside MPI (`mpirun torchrun ...`). Use one or the other, not both. This is a common mistake that causes cryptic failures.
+
+---
+
+## DDP Training Template
+
+A complete, working PyTorch DDP training script for DGX Spark. Copy this as a starting point.
+
+```python
+import os
+import torch
+import torch.distributed as dist
+from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.utils.data import DataLoader
+from torch.utils.data.distributed import DistributedSampler
+
+def setup():
+    """Initialize distributed environment. torchrun sets env vars automatically."""
+    dist.init_process_group(backend="nccl")
+    local_rank = int(os.environ["LOCAL_RANK"])
+    torch.cuda.set_device(local_rank)
+    return local_rank
+
+def cleanup():
+    dist.destroy_process_group()
+
+def train():
+    local_rank = setup()
+    rank = dist.get_rank()
+    world_size = dist.get_world_size()
+
+    print(f"Rank {rank}/{world_size} running on GPU {local_rank}")
+
+    # Create model and move to GPU
+    model = YourModel().to(local_rank)
+
+    # Wrap with DDP — this handles gradient synchronization
+    model = DDP(model, device_ids=[local_rank])
+
+    # IMPORTANT: DistributedSampler partitions data across GPUs
+    dataset = YourDataset()
+    sampler = DistributedSampler(dataset, num_replicas=world_size, rank=rank, shuffle=True)
+    dataloader = DataLoader(dataset, batch_size=32, sampler=sampler, num_workers=4, pin_memory=True)
+
+    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4)
+
+    model.train()
+    for epoch in range(10):
+        # IMPORTANT: Set epoch for proper shuffling each epoch
+        sampler.set_epoch(epoch)
+
+        for batch_idx, (data, target) in enumerate(dataloader):
+            data = data.to(local_rank)
+            target = target.to(local_rank)
+
+            optimizer.zero_grad()
+            output = model(data)
+            loss = torch.nn.functional.cross_entropy(output, target)
+            loss.backward()  # DDP auto-syncs gradients here
+            optimizer.step()
+
+            if batch_idx % 10 == 0 and rank == 0:
+                print(f"Epoch {epoch}, Batch {batch_idx}, Loss: {loss.item():.4f}")
+
+        if rank == 0:
+            print(f"Epoch {epoch} done.")
+
+    # Only save from rank 0 — use model.module to unwrap DDP
+    if rank == 0:
+        torch.save(model.module.state_dict(), "model_final.pt")
+        print("Model saved.")
+
+    cleanup()
+
+if __name__ == "__main__":
+    train()
+```
+
+### Key Rules for DDP Scripts
+
+1. **Always use `DistributedSampler`** — ensures each GPU gets different data
+2. **Call `sampler.set_epoch(epoch)`** — ensures proper shuffling across epochs
+3. **Only save/print from rank 0** — avoids duplicate outputs and corrupted saves
+4. **Use `model.module`** to access the unwrapped model when saving
+5. **Move data to the correct GPU** — use `.to(local_rank)`, not `.cuda()`
+
+---
+
+## Testing Your Setup
+
+Before running real training, verify the cluster works end-to-end.
+
+### Test 1: NCCL Bandwidth
+
+```bash
+# Requires nccl-tests built with MPI (see Software Installation)
+mpirun -np 2 -H 10.0.0.1:1,10.0.0.2:1 \
+    -x NCCL_SOCKET_IFNAME=enp1s0f0np0 \
+    -x NCCL_IB_GID_INDEX=3 \
+    -x NCCL_NET_GDR_LEVEL=0 \
+    ./nccl-tests/build/all_reduce_perf -b 8 -e 512M -f 2 -g 1
+```
+
+Look for bandwidth reaching ~20-24 GB/s at large message sizes.
+
+### Test 2: Simple DDP Validation
+
+Create `test_ddp.py`:
+
+```python
+import os
+import torch
+import torch.distributed as dist
+
+def test():
+    dist.init_process_group(backend="nccl")
+    rank = dist.get_rank()
+    device = torch.device(f"cuda:{int(os.environ.get('LOCAL_RANK', 0))}")
+
+    # Each rank creates a tensor with its rank+1
+    tensor = torch.ones(2, 2, device=device) * (rank + 1)
+    print(f"[Rank {rank}] Before all_reduce: {tensor[0,0].item()}")
+
+    # Sum across all ranks
+    dist.all_reduce(tensor, op=dist.ReduceOp.SUM)
+    print(f"[Rank {rank}] After all_reduce: {tensor[0,0].item()}")
+
+    # Should be 3.0 (rank0=1 + rank1=2)
+    expected = 3.0
+    status = "PASS" if tensor[0,0].item() == expected else "FAIL"
+    print(f"[Rank {rank}] {status}")
+
+    dist.destroy_process_group()
+
+if __name__ == "__main__":
+    test()
+```
+
+```bash
+# spark-dgx-1
+NCCL_SOCKET_IFNAME=enp1s0f0np0 torchrun --nnodes=2 --nproc_per_node=1 \
+    --node_rank=0 --master_addr=10.0.0.1 --master_port=29500 test_ddp.py
+
+# spark-dgx-2 (within 60 seconds)
+NCCL_SOCKET_IFNAME=enp1s0f0np0 torchrun --nnodes=2 --nproc_per_node=1 \
+    --node_rank=1 --master_addr=10.0.0.1 --master_port=29500 test_ddp.py
+```
+
+### Test 3: Monitor GPUs During Training
+
+```bash
+# On both nodes
+watch -n 1 nvidia-smi
+```
+
+You should see GPU utilization > 0% and memory being consumed on both nodes.
+
+---
 
 ## Troubleshooting
 

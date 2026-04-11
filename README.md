@@ -46,6 +46,18 @@
 - [Spark Initiator Setup](docs/rosa/02-spark-initiator-setup.md) — NVMe-TCP client, kernel module, mount, fstab, systemd auto-connect
 - [Storage Performance](docs/rosa/03-performance-testing.md) — Benchmarks: `dd`, `fio`, NVMe-TCP vs. NFS vs. local
 
+### Bonus: Getting Started
+- [Training Beginner's Guide](docs/09-training-beginners-guide.md) — What is training, why do it, how it works — written for absolute beginners
+- [Standalone Training](docs/08-standalone-training.md) — Single-node fine-tuning on one DGX Spark, no cluster needed
+- [Cloud Cost Comparison](docs/11-cost-comparison.md) — DGX Spark vs. cloud GPU pricing, break-even analysis, ROI calculator
+
+### Bonus: Production & Operations
+- [Open WebUI + LiteLLM Integration](docs/10-open-webui-integration.md) — Self-hosted ChatGPT with user accounts, chat history, and model routing
+- [Monitoring & Dashboards](docs/12-monitoring.md) — GPU metrics, thermal alerts, Prometheus + Grafana setup, cluster status scripts
+- [Tested Model Catalog](docs/13-model-catalog.md) — Which models work, memory requirements, performance, and how to choose
+- [Firmware & Driver Updates](docs/14-firmware-drivers.md) — Safe update process, compatibility matrix, rollback procedures
+- [Backup & Recovery](docs/15-backup-recovery.md) — Protect models, data, and configs with rsync, snapshots, and cloud backup
+
 ### Scaling
 - [Expanding to 3-10 Nodes](#scaling-beyond-2-nodes) — Switch requirements, IP addressing, NCCL tuning, rendezvous launch, storage bandwidth
 
