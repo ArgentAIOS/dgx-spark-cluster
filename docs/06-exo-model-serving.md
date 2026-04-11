@@ -4,6 +4,8 @@
 
 **Example:** Llama 405B at 4-bit quantization requires ~200 GB — too large for one Spark's 128 GB unified memory, but fits comfortably across two (256 GB total).
 
+> **Looking for CUDA/GPU inference?** See [EXO on Linux with CUDA (Tinygrad Backend)](07-exo-cuda-tinygrad.md) — the tested, working GPU-accelerated setup using EXO v0.0.9-alpha + tinygrad.
+
 ---
 
 ## How Exo Works
@@ -29,14 +31,14 @@ Exo uses **pipeline parallelism** to shard a model across multiple devices. Each
 
 | Feature | Status | Notes |
 |---|---|---|
-| Auto-discovery | Works | libp2p over LAN (192.168.0.0/24) |
+| Auto-discovery | Works | libp2p over LAN or fabric (10.0.0.x) |
 | CPU inference (ARM64) | Works | Grace CPU, ~5-10 tok/s on large models |
-| NVIDIA GPU inference | **Experimental** | Via [exo-cuda fork](https://github.com/Scottcjn/exo-cuda) using tinygrad; not tested on Blackwell |
+| NVIDIA GPU inference (CUDA) | **Working** | EXO v0.0.9-alpha + tinygrad 0.10.0. See [CUDA/Tinygrad Setup](07-exo-cuda-tinygrad.md) |
 | MLX backend | N/A | Apple Silicon only |
 | Model sharding | Works | Pipeline parallel across nodes |
 | OpenAI API compat | Works | Chat completions at port 52415 |
 
-> **Bottom line:** Exo works today on DGX Spark using **CPU inference** on the Grace cores. GPU-accelerated inference via the tinygrad/CUDA fork is experimental and untested on Blackwell — worth trying but have a fallback plan.
+> **Bottom line:** GPU-accelerated inference is working on DGX Spark using EXO v0.0.9-alpha with the tinygrad CUDA backend. See [07-exo-cuda-tinygrad.md](07-exo-cuda-tinygrad.md) for the full setup guide. This doc covers the CPU/general setup path.
 
 ---
 
@@ -170,24 +172,11 @@ print(response.choices[0].message.content)
 
 ---
 
-## Experimental: GPU-Accelerated Inference (tinygrad)
+## GPU-Accelerated Inference (CUDA/Tinygrad)
 
-The [exo-cuda fork](https://github.com/Scottcjn/exo-cuda) adds NVIDIA GPU support via tinygrad. This is untested on Blackwell but worth trying for a significant speedup.
+GPU inference is working on DGX Spark. For the complete setup guide, see:
 
-```bash
-# On BOTH nodes
-cd /opt
-sudo git clone https://github.com/Scottcjn/exo-cuda.git
-sudo chown -R sem:sem exo-cuda
-cd exo-cuda
-pip install -e .
-
-# Start with tinygrad engine
-exo --inference-engine tinygrad --chatgpt-api-port 8001 --disable-tui
-```
-
-**If it works:** expect 5-10x speedup over CPU inference.
-**If it doesn't:** Blackwell may need tinygrad updates. Fall back to CPU mode.
+**[07-exo-cuda-tinygrad.md](07-exo-cuda-tinygrad.md)** — EXO v0.0.9-alpha + tinygrad 0.10.0, venv setup, device_capabilities.py patch, launch commands, systemd service, and troubleshooting.
 
 ---
 

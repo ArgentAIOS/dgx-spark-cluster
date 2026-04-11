@@ -38,7 +38,8 @@
 - [GPU Direct RDMA](docs/04-gpu-direct-rdma.md) — Why nvidia-peermem fails, DMA-BUF solution, safe vs. dmabuf modes
 
 ### Inference
-- [Exo Model Serving](docs/06-exo-model-serving.md) — Serve models >128 GB across both Sparks, OpenAI-compatible API, systemd
+- [Exo Model Serving (CPU/General)](docs/06-exo-model-serving.md) — Overview, CPU inference, shared model storage, OpenAI-compatible API
+- [Exo CUDA/Tinygrad Setup](docs/07-exo-cuda-tinygrad.md) — **Working** GPU-accelerated inference with EXO v0.0.9-alpha + tinygrad on CUDA
 
 ### Storage
 - [ROSE Server Setup](docs/rosa/01-rosa-server-setup.md) — RouterOS NVMe-TCP targets, RAID pools, subsystems, host ACLs
